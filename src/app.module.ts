@@ -10,16 +10,23 @@ import { Gamify } from './sheme/gamify.entity';
 import { RedisModule } from './redis/redis.module';
 import { MailModule } from './mail/mail.module';
 import { GamifyModule } from './gamify/gamify.module';
+import { SupabaseModule } from './supabase/supabase.module';
+import { Meditation } from './sheme/meditation.entity';
+import { MeditationsModule } from './meditations/meditations.module';
+import { GeminiService } from './gemini/gemini.service';
+import { GeminiModule } from './gemini/gemini.module';
+import { Gemini } from './sheme/gemini.entity';
+import { Statistic } from './sheme/statistic.entity';
 
 dotenv.config();
 
 @Module({
-  
+
   imports: [
     TypeOrmModule.forRoot({
       type: 'postgres',
       url: process.env.DATABASE_URL,
-      entities: [User,Onboard,Gamify],
+      entities: [User, Onboard, Gamify, Meditation, Gemini, Statistic],
       synchronize: true,
       ssl: {
         rejectUnauthorized: false,
@@ -29,9 +36,12 @@ dotenv.config();
     MailModule,
     GamifyModule,
     RedisModule,
+    SupabaseModule,
+    MeditationsModule,
+    GeminiModule,
   ],
   controllers: [AppController,],
   providers: [AppService],
-  
+
 })
-export class AppModule {}
+export class AppModule { }

@@ -1,13 +1,15 @@
 import { Entity, Column, PrimaryGeneratedColumn, OneToOne, CreateDateColumn } from 'typeorm';
 import { Onboard } from './onboarding.entity';
 import { Gamify } from './gamify.entity';
+import { Gemini } from './gemini.entity';
+import { Statistic } from './statistic.entity';
 
 @Entity('users')
 export class User {
     @PrimaryGeneratedColumn('uuid')
     id: string;
 
-    @Column({unique: true})
+    @Column({ unique: true })
     Username: string;
 
     @Column({ unique: true })
@@ -31,9 +33,16 @@ export class User {
     @Column({ nullable: true })
     refreshTokenHash: string | null;
 
-    @OneToOne(() => Onboard,(profile) => profile.user,)
+    @OneToOne(() => Onboard, (profile) => profile.user,)
     onboardingProfile: Onboard;
 
-    @OneToOne(() => Gamify,(profile) => profile.user,)
+    @OneToOne(() => Gamify, (profile) => profile.user,)
     gamifyProfile: Gamify;
+
+    @OneToOne(() => Gemini, (profile) => profile.user,)
+    geminiProfile: Gemini;
+
+    @OneToOne(() => Statistic, (profile) => profile.user,)
+    statisticProfile: Statistic;
+
 }

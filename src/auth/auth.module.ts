@@ -8,14 +8,23 @@ import { JwtModule } from '@nestjs/jwt';
 import { RedisModule } from 'src/redis/redis.module';
 import { MailModule } from 'src/mail/mail.module';
 import { Gamify } from 'src/sheme/gamify.entity';
+import { PassportModule } from '@nestjs/passport';
+import { JwtStrategy } from './jwt.strategy';
+import { Gemini } from 'src/sheme/gemini.entity';
+import { Statistic } from 'src/sheme/statistic.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([User,Onboard,Gamify]),
-    JwtModule,
+  imports: [TypeOrmModule.forFeature([User, Onboard, Gamify, Gemini, Statistic]),
+  JwtModule.register({
+    secret: process.env.JWT_SECRET,
+    signOptions: { expiresIn: '15m' },
+  }),
     RedisModule,
     MailModule,
+    PassportModule,
   ],
-  providers: [AuthService],
-  controllers: [AuthController]
+  providers: [AuthService, JwtStrategy],
+  controllers: [AuthController],
+  exports: [PassportModule, JwtModule],
 })
-export class AuthModule {}
+export class AuthModule { }

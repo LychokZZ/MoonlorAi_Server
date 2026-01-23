@@ -16,6 +16,9 @@ export class Gamify {
     @Column({ type: 'int' })
     xp: number;
 
+    @Column({ type: 'int',default: 0 })
+    CountMessage: number;
+
     @Column({ type: 'int' })
     currentStreak: number;
 
@@ -24,9 +27,6 @@ export class Gamify {
 
     @Column()
     lastActivity: string;
-
-    @Column()
-
 
     @Column({ type: 'int', default: 0 })
     leaderboardPosition: number;

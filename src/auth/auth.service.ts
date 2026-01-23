@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Injectable, InternalServerErrorException, UnauthorizedException } from '@nestjs/common';
 
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
@@ -15,6 +15,16 @@ import { RedisService } from 'src/redis/redis.service';
 import { sendCode } from './dto/restor.dto/restore.dto';
 import { MailService } from 'src/mail/mail.service';
 import { Gamify } from 'src/sheme/gamify.entity';
+import { Gemini } from 'src/sheme/gemini.entity';
+import { Statistic } from 'src/sheme/statistic.entity';
+
+type Lang = 'UA' | 'EN';
+type PageTexts = 'TextDashboard' | 'TextMedetation' | 'AddsTextAiChats' | 'StatasText' | 'AchivmentsText' | 'LeaderBoardText' | 'SettingText' | 'MainLandPageText';
+
+const modules = {
+    UA: () => import('../language/ua'),
+    EN: () => import('../language/en'),
+};
 
 @Injectable()
 export class AuthService {
@@ -24,18 +34,25 @@ export class AuthService {
         private readonly jwt: JwtService,
         private readonly redis: RedisService,
         private readonly mailService: MailService,
-       
+
         @InjectRepository(Onboard)
         private readonly onboardRepository: Repository<Onboard>,
-        
+
 
         @InjectRepository(Gamify)
         private readonly gamifyRepository: Repository<Gamify>,
-        
-    ) {}
+
+        @InjectRepository(Gemini)
+        private readonly geminiRepository: Repository<Gemini>,
+
+        @InjectRepository(Statistic)
+        private readonly statisticRepository: Repository<Statistic>,
 
 
-    async generateTokens(user:User) {
+    ) { }
+
+
+    async generateTokens(user: User) {
         try {
             const payload = {
                 sub: user.id,
@@ -44,29 +61,28 @@ export class AuthService {
             }
             const access_token = await this.jwt.sign(payload, {
                 secret: process.env.JWT_SECRET,
-                expiresIn: '15m',
+                expiresIn: '1m',
             });
             const refresh_token = await this.jwt.sign(payload, {
                 secret: process.env.JWT_REFRESH_SECRET,
                 expiresIn: '30d',
             });
-            
+
             return { access_token, refresh_token };
         } catch (error) {
             throw new Error('Invalid generate tokens');
         }
     }
-    
-    async register(dto: RegisterDto){
+
+    async register(dto: RegisterDto) {
         try {
-            console.log(dto)
-            const exitsEmail = await this.userRepository.findOne({where: {email: dto.data.Email}})
+            const exitsEmail = await this.userRepository.findOne({ where: { email: dto.data.Email } })
             if (exitsEmail) throw new BadRequestException('User with this email already exists');
 
-            const exitsUser = await this.userRepository.findOne({where: {Username: dto.data.Name}})
+            const exitsUser = await this.userRepository.findOne({ where: { Username: dto.data.Name } })
             if (exitsUser) throw new BadRequestException('User with this username already exists');
 
-            const hashpass = await bcrypt.hash(dto.data.Password,16)
+            const hashpass = await bcrypt.hash(dto.data.Password, 10)
 
             const user = this.userRepository.create({
                 Username: dto.data.Name,
@@ -74,34 +90,46 @@ export class AuthService {
                 passwordHash: hashpass,
                 role: dto.data.role,
             });
-
-            console.log(user)
             await this.userRepository.save(user);
-
             const Onboard = this.onboardRepository.create({
                 socialLevel: dto.data.socialLevel,
                 emotionLevel: dto.data.emotionLevel,
                 functionLevel: dto.data.functionLevel,
                 identityLevel: dto.data.identityLevel,
-                user
+                user: user
             })
-
-            await this.onboardRepository.save(Onboard)
-            
             const DateNow = new Date().toISOString().slice(0, 10);
-
             const Gamify = this.gamifyRepository.create({
-                user,
+                user: user,
                 xp: 0,
                 currentStreak: 0,
-                lastActivity:DateNow,
+                lastActivity: DateNow,
+            })
+            const Gemini = this.geminiRepository.create({
+                user: user,
+                Summary: '',
+                state: {},
+            })
+            const AverageEmotionLvl = Math.round(
+                ((dto.data.socialLevel + dto.data.emotionLevel + dto.data.functionLevel + dto.data.identityLevel) / 145) * 100
+            );
+            const Statistic = this.statisticRepository.create({
+                user: user,
+                countMeditation: 0,
+                avarageEmotion: AverageEmotionLvl,
+                avarageEmotionList: [0],
+                hoursPractic: 0
             })
 
-            await this.gamifyRepository.save(Gamify)
-            
 
+            await this.onboardRepository.save(Onboard)
+            await this.gamifyRepository.save(Gamify)
+            await this.geminiRepository.save(Gemini)
+            await this.statisticRepository.save(Statistic)
+            console.log(user)
             const tokens = await this.generateTokens(user)
-            await this.writeRefresh(user.id , tokens.refresh_token )
+            console.log(tokens)
+            await this.writeRefresh(user.id, tokens.refresh_token)
             const userData = {
                 Username: user.Username,
                 id: user.id,
@@ -120,7 +148,6 @@ export class AuthService {
 
     async login(dto: LoginDto) {
         try {
-            console.log(dto)
             const user = await this.userRepository.findOne({ where: { email: dto.data.Email } });
             if (!user) throw new UnauthorizedException('Wrong email!');
 
@@ -128,7 +155,7 @@ export class AuthService {
             if (!passOk) throw new UnauthorizedException('Wrong password!');
 
             const tokens = await this.generateTokens(user)
-            await this.writeRefresh(user.id , tokens.refresh_token )
+            await this.writeRefresh(user.id, tokens.refresh_token)
 
             const userData = {
                 Username: user.Username,
@@ -146,17 +173,17 @@ export class AuthService {
         }
     }
 
-    async writeRefresh(user_id, refresh_token) {
-        try {
-            const hashtoken = await bcrypt.hash(refresh_token, 16)
+    async writeRefresh(userId: string, refreshToken: string) {
+        if (!refreshToken) throw new BadRequestException('Refresh token is missing');
 
-            await this.userRepository.update(user_id, {
-                refreshTokenHash: hashtoken
-            })
-        } catch (error) {
-            throw new Error('Invalid write refresh token');
-        }
-    } 
+        const hash = await bcrypt.hash(refreshToken, 10);
+
+        await this.userRepository.update(
+            { id: userId },
+            { refreshTokenHash: hash },
+        );
+    }
+
 
     async refreshToken(refresh: string) {
         try {
@@ -166,12 +193,12 @@ export class AuthService {
 
             const user = await this.userRepository.findOne({ where: { id: payload.sub } });
             if (!user || !user.refreshTokenHash) {
-                throw new UnauthorizedException('User not found or no refresh hash');
+                throw new Error('User not found or no refresh hash');
             }
 
             const ok = await bcrypt.compare(refresh, user.refreshTokenHash);
             if (!ok) {
-                throw new UnauthorizedException('Invalid refresh token');
+                throw new Error('Invalid refresh token');
             }
             const { access_token, refresh_token } = await this.generateTokens(user);
 
@@ -179,9 +206,9 @@ export class AuthService {
 
             return { access_token, refresh_token };
         } catch (e) {
-            throw new Error('Invalid or expired refresh token');
+            throw new Error('Invalid refresh');
         }
-        }
+    }
 
     async logout(userId: string) {
         try {
@@ -192,13 +219,13 @@ export class AuthService {
         }
     }
 
-    async resetPassword_generate(emailChek){
+    async resetPassword_generate(emailChek) {
         try {
-            const user = await this.userRepository.findOne({where: { email: emailChek.email  },});
-            if (!user) return { message: 'Wrong email'};
-            
+            const user = await this.userRepository.findOne({ where: { email: emailChek.email }, });
+            if (!user) return { message: 'Wrong email' };
 
-            const code = Array.from({ length: 5 }, () =>Math.floor(Math.random() * 10)).join('');
+
+            const code = Array.from({ length: 5 }, () => Math.floor(Math.random() * 10)).join('');
 
             const redisKey = `reset:${emailChek.email}`;
 
@@ -206,41 +233,86 @@ export class AuthService {
 
 
             await this.mailService.sendResetCode(emailChek.email, code.toString());
-            
-            return { message: 'Successful'}
+
+            return { message: 'Successful' }
         } catch (error) {
             throw new Error('Invalid send verify code');
         }
     }
 
-    async resetPassword_send(dto:sendCode) {
+    async resetPassword_send(dto: sendCode) {
         try {
             const redisKey = `reset:${dto.emailChek}`;
             const value = await this.redis.get(redisKey)
 
-            if(!value){
+            if (!value) {
                 throw new Error('Code has expired')
             }
-            if(dto.code !== value){
-                return {message: 'Code is not valid'}
+            if (dto.code !== value) {
+                return { message: 'Code is not valid' }
             }
-            if(dto.code === value){
+            if (dto.code === value) {
                 await this.redis.del(redisKey)
-                return {message: 'Successful'}
+                return { message: 'Successful' }
             }
 
-            
+
         } catch (error) {
             throw new Error('Invalid check verify code')
         }
     }
 
 
+    async getMe(userId: string) {
+        const user = this.userRepository.findOne({ where: { id: userId } });
+        if (!user) return { message: 'Wrong authorize' };
 
+        const gamifyData = this.gamifyRepository.findOne({ where: { user: { id: userId } } })
+        if (!gamifyData) return { message: 'Wrong gamify data' };
+
+        const statisticData = this.statisticRepository.findOne({ where: { user: { id: userId } } })
+        if (!statisticData) return { message: 'Wrong statistic data' };
+
+        const userData = {
+            Email: (await user).email,
+            Username: (await user).Username,
+            isActive: (await user).isActive,
+            role: (await user).role,
+            xp: (await gamifyData)?.xp,
+            leaderboard: (await gamifyData)?.leaderboardPosition,
+            streak: (await gamifyData)?.currentStreak,
+            Language: (await user).Language,
+            countMedetation: (await statisticData).countMeditation,
+            avarageEmotion: (await statisticData).avarageEmotion,
+            avarageEmotionList: (await statisticData).avarageEmotionList,
+            hoursPractic: (await statisticData).hoursPractic,
+        }
+
+        return userData
+    }
+
+    async LangGet(userId: string, lang: string) {
+        console.log(userId, lang)
+        const user = await this.userRepository.findOne({
+            where: { id: userId },
+        });
+
+        if (!user) {
+            return { message: 'Wrong authorize' };
+        }
+
+        user.Language = lang;
+        await this.userRepository.save(user);
+
+        return { message: 'Successful' };
+    }
+
+
+    //TEST
     async setRedis() {
         const randomNum = 14
-        await this.redis.set('test', randomNum.toString() , 180)
-        return {messege: 'Set'}
+        await this.redis.set('test', randomNum.toString(), 180)
+        return { messege: 'Set' }
     }
 
     async getRedis() {
